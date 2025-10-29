@@ -4,9 +4,9 @@
 """
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QSlider, QGraphicsView, QGraphicsScene,
-                             QWidget)
+                             QWidget, QApplication)
 from PyQt6.QtGui import QPixmap, QImage
-from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtCore import Qt, QPoint, QRectF
 
 from ..core import CaptureEngine
 from ..config import settings
@@ -21,7 +21,9 @@ class CaptureWindow(QDialog):
     - 时尚的深色界面
     - 增强的控制栏设计
     - 实时性能指标
-    - 无边框现代设计
+    - 可调整窗口大小
+    - 等比例缩放视频内容
+    - 窗口置顶，易于拖动和调整
     """
     
     def __init__(self, engine: CaptureEngine, window_title: str, parent=None):
@@ -38,9 +40,10 @@ class CaptureWindow(QDialog):
         self.engine = engine
         self.window_title = window_title
         
-        # 拖拽相关
-        self.dragging = False
-        self.drag_position = QPoint()
+        # 视频原始尺寸（用于等比例缩放）
+        self.original_width = 0
+        self.original_height = 0
+        self.current_pixmap = None
         
         # 连接信号
         self._connect_signals()
@@ -60,19 +63,27 @@ class CaptureWindow(QDialog):
     def _init_ui(self):
         """初始化用户界面"""
         self.setWindowTitle(f"📺 监视: {self.window_title}")
+        # 保持置顶，但使用正常窗口边框（允许用户调整大小）
         self.setWindowFlags(
-            Qt.WindowType.WindowStaysOnTopHint | 
-            Qt.WindowType.Tool |
-            Qt.WindowType.FramelessWindowHint
+            Qt.WindowType.WindowStaysOnTopHint
         )
+        
+        # 设置初始窗口大小（避免窗口太小看不见）
+        self.resize(800, 600)
+        
+        # 将窗口移到屏幕中心
+        screen = QApplication.primaryScreen().availableGeometry()
+        screen_center_x = screen.x() + (screen.width() - 800) // 2
+        screen_center_y = screen.y() + (screen.height() - 600) // 2
+        self.move(screen_center_x, screen_center_y)
+        
+        logger.info(f"监视窗口初始化: 初始大小 800x600, 位置 ({screen_center_x}, {screen_center_y})")
         
         # 应用现代样式
         self.setStyleSheet("""
             QDialog {
                 background-color: #0F172A;
                 color: #F8FAFC;
-                border: 2px solid #334155;
-                border-radius: 8px;
             }
         """)
         
@@ -87,12 +98,13 @@ class CaptureWindow(QDialog):
             QGraphicsView {
                 background: #0F172A;
                 border: none;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
             }
         """)
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # 设置等比例缩放模式
+        self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         
         main_layout.addWidget(self.view)
         
@@ -115,8 +127,6 @@ class CaptureWindow(QDialog):
             QWidget {
                 background-color: #1E293B;
                 border-top: 1px solid #334155;
-                border-bottom-left-radius: 6px;
-                border-bottom-right-radius: 6px;
             }
         """)
         
@@ -234,17 +244,23 @@ class CaptureWindow(QDialog):
         Args:
             image: 捕获的图像
         """
-        self.scene.clear()
-        self.scene.addPixmap(QPixmap.fromImage(image))
+        # 保存原始尺寸和图像
+        if self.original_width == 0:
+            self.original_width = image.width()
+            self.original_height = image.height()
+            logger.info(f"视频原始尺寸: {self.original_width}x{self.original_height}")
         
-        # 更新场景和窗口尺寸
-        width = image.width()
-        height = image.height()
-        self.view.setSceneRect(0, 0, width, height)
+        self.current_pixmap = QPixmap.fromImage(image)
+        
+        # 更新场景
+        self.scene.clear()
+        self.scene.addPixmap(self.current_pixmap)
+        self.view.setSceneRect(0, 0, image.width(), image.height())
         
         # 自动调整窗口大小（仅首次）
         if self.engine.capture_count == 1:
-            self.resize(width, height + 50)
+            self._set_initial_size(image.width(), image.height())
+            self._fit_in_view()
     
     def on_fps_updated(self, fps: float):
         """
@@ -297,26 +313,60 @@ class CaptureWindow(QDialog):
         self.fps_value_label.setText(str(value))
         self.engine.set_fps(value)
     
-    def mousePressEvent(self, event):
-        """鼠标按下事件"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.dragging = True
-            self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            logger.debug("开始拖拽监视窗口")
-            event.accept()
+    def _set_initial_size(self, video_width: int, video_height: int):
+        """
+        设置窗口初始大小，限制在屏幕范围内
+        
+        Args:
+            video_width: 视频宽度
+            video_height: 视频高度
+        """
+        # 获取屏幕可用区域
+        screen = QApplication.primaryScreen().availableGeometry()
+        screen_width = screen.width()
+        screen_height = screen.height()
+        
+        # 控制栏高度
+        control_height = 50
+        
+        # 计算最大可用尺寸（留出边距）
+        max_width = int(screen_width * 0.8)  # 屏幕宽度的80%
+        max_height = int(screen_height * 0.8) - control_height  # 屏幕高度的80%减去控制栏
+        
+        # 计算缩放比例，保持宽高比
+        scale = min(
+            max_width / video_width,
+            max_height / video_height,
+            1.0  # 如果视频小于最大尺寸，不放大
+        )
+        
+        # 计算窗口尺寸
+        window_width = int(video_width * scale)
+        window_height = int(video_height * scale) + control_height
+        
+        logger.info(f"窗口初始大小: {window_width}x{window_height} (缩放比例: {scale:.2f})")
+        
+        # 设置窗口大小
+        self.resize(window_width, window_height)
+        
+        # 将窗口移到屏幕中心
+        window_x = screen.x() + (screen_width - window_width) // 2
+        window_y = screen.y() + (screen_height - window_height) // 2
+        self.move(window_x, window_y)
+        
+        logger.info(f"窗口位置: ({window_x}, {window_y})")
     
-    def mouseMoveEvent(self, event):
-        """鼠标移动事件"""
-        if self.dragging:
-            new_pos = event.globalPosition().toPoint() - self.drag_position
-            self.move(new_pos)
-            event.accept()
+    def _fit_in_view(self):
+        """等比例缩放视频以适应窗口"""
+        if self.current_pixmap and not self.current_pixmap.isNull():
+            # 等比例缩放，保持宽高比
+            self.view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
     
-    def mouseReleaseEvent(self, event):
-        """鼠标释放事件"""
-        if self.dragging:
-            logger.debug(f"拖拽结束，窗口位置: ({self.x()}, {self.y()})")
-        self.dragging = False
+    def resizeEvent(self, event):
+        """窗口大小改变事件"""
+        super().resizeEvent(event)
+        # 窗口大小改变时，重新等比例缩放视频
+        self._fit_in_view()
     
     def closeEvent(self, event):
         """窗口关闭事件"""

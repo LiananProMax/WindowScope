@@ -430,30 +430,39 @@ class MainWindow(QMainWindow):
             # 创建捕获引擎
             engine = CaptureEngine(hwnd, region, fps)
             
-            # 创建监视窗口
-            capture_win = CaptureWindow(engine, window_title, self)
-            
-            # 设置窗口初始位置（在主窗口右侧）
-            main_x = self.x()
-            main_y = self.y()
-            capture_win.move(main_x + self.width() + 20, main_y)
-            logger.debug(f"监视窗口位置: x={main_x + self.width() + 20}, y={main_y}")
+            # 创建监视窗口（不设置parent，避免成为子窗口）
+            capture_win = CaptureWindow(engine, window_title, None)
+            logger.info(f"监视窗口已创建，准备显示...")
             
             # 保存引用，防止被垃圾回收
             self.capture_windows.append((engine, capture_win))
             
             # 显示窗口并启动引擎
+            logger.info(f"正在显示监视窗口...")
             capture_win.show()
+            logger.info(f"监视窗口 show() 已调用")
+            
             capture_win.raise_()
+            logger.info(f"监视窗口 raise_() 已调用")
+            
             capture_win.activateWindow()
+            logger.info(f"监视窗口 activateWindow() 已调用")
+            
+            # 打印窗口状态
+            logger.info(f"窗口是否可见: {capture_win.isVisible()}")
+            logger.info(f"窗口大小: {capture_win.width()}x{capture_win.height()}")
+            logger.info(f"窗口位置: ({capture_win.x()}, {capture_win.y()})")
+            
             engine.start()
+            logger.info(f"捕获引擎已启动")
             
             logger.info("监视窗口已显示并激活，实时视频流开始")
             print(f"\n✅ 监视窗口已启动！")
             print(f"   窗口标题: 监视: {window_title}")
-            print(f"   位置: 主窗口右侧")
+            print(f"   位置: 屏幕居中（首帧后自动调整）")
             print(f"   帧率: {fps} FPS")
-            print(f"   已启动监视窗口数: {len(self.capture_windows)}\n")
+            print(f"   已启动监视窗口数: {len(self.capture_windows)}")
+            print(f"   提示: 窗口会在首帧捕获后自动调整大小并居中显示\n")
             
         except ValueError as e:
             QMessageBox.warning(self, "错误", f"输入值无效: {e}")
