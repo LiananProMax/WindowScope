@@ -135,7 +135,12 @@ class CaptureEngine(QObject):
                     logger.warning(f"捕获失败 (失败计数: {self.failed_count})")
                 
                 if self.failed_count > 5:
-                    self.capture_failed.emit("连续捕获失败，请检查目标窗口状态")
+                    # 检查窗口是否被最小化
+                    if WindowManager.is_window_minimized(self.hwnd):
+                        self.capture_failed.emit("目标窗口已最小化，无法捕获内容。请恢复窗口！")
+                        logger.warning("捕获失败：窗口已最小化")
+                    else:
+                        self.capture_failed.emit("连续捕获失败，请检查目标窗口状态")
                 return
             
             # 捕获成功，重置失败计数

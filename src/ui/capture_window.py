@@ -291,6 +291,13 @@ class CaptureWindow(QDialog):
         self.status_label.setText("❌")
         self.method_label.setText("错误")
         logger.error(f"捕获失败: {error_message}")
+        
+        # 如果是窗口最小化导致的错误，暂停捕获并显示友好提示
+        if "最小化" in error_message:
+            self.engine.pause()
+            self.pause_btn.setText("▶")
+            self.status_label.setText("⏸")
+            self.method_label.setText("窗口已最小化")
     
     def toggle_pause(self):
         """切换暂停/继续状态"""

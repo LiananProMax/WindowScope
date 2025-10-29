@@ -2,6 +2,7 @@
 主窗口 UI 组件 - 现代化版本
 提供窗口选择和配置界面
 """
+import time
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QComboBox, QPushButton, QLineEdit, 
                              QMessageBox, QApplication, QDialog, QGroupBox)
@@ -320,6 +321,28 @@ class MainWindow(QMainWindow):
         self.select_region_btn.setEnabled(False)
         QApplication.processEvents()
         
+        # 检查窗口是否最小化
+        was_minimized = False
+        try:
+            if WindowManager.is_window_minimized(hwnd):
+                was_minimized = True
+                logger.info(f"窗口 '{window_title}' 处于最小化状态，正在恢复...")
+                
+                # 提示用户
+                self.select_region_btn.setText("⏳ 恢复窗口中...")
+                QApplication.processEvents()
+                
+                # 恢复窗口
+                WindowManager.restore_window(hwnd)
+                
+                # 等待窗口恢复（给一点时间让窗口完全显示）
+                time.sleep(0.3)
+                QApplication.processEvents()
+                
+                logger.info("窗口已恢复，继续截图")
+        except Exception as e:
+            logger.warning(f"检查窗口状态时出错: {e}")
+        
         try:
             # 获取窗口尺寸并截图
             rect = WindowManager.get_window_rect(hwnd)
@@ -371,6 +394,16 @@ class MainWindow(QMainWindow):
             # 恢复按钮状态
             self.select_region_btn.setText("🎯 图形化选择区域")
             self.select_region_btn.setEnabled(True)
+            
+            # 如果窗口之前是最小化的，提示用户窗口已恢复
+            if was_minimized:
+                logger.info(f"窗口 '{window_title}' 已从最小化状态恢复，将保持正常状态以便监视")
+                QMessageBox.information(self, "提示", 
+                    f"✅ 窗口已恢复\n\n"
+                    f"窗口 '{window_title}' 之前处于最小化状态，\n"
+                    f"已自动恢复为正常状态。\n\n"
+                    f"📌 注意：监视时窗口不能最小化，\n"
+                    f"否则无法捕获内容。")
     
     def start_capture(self):
         """开始监视选定的窗口"""
@@ -391,6 +424,28 @@ class MainWindow(QMainWindow):
                     "建议：打开记事本、浏览器等其他应用来测试。")
                 logger.warning("用户尝试监视程序自己，已阻止")
                 return
+            
+            # 检查窗口是否最小化
+            if WindowManager.is_window_minimized(hwnd):
+                logger.warning(f"窗口 '{window_title}' 处于最小化状态")
+                
+                # 询问用户是否恢复窗口
+                reply = QMessageBox.question(self, "窗口已最小化",
+                    f"⚠️ 无法监视最小化的窗口\n\n"
+                    f"窗口 '{window_title}' 当前处于最小化状态。\n"
+                    f"Windows 系统限制，最小化的窗口无法捕获内容。\n\n"
+                    f"是否自动恢复窗口以继续监视？",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes)
+                
+                if reply == QMessageBox.StandardButton.Yes:
+                    logger.info(f"用户同意恢复窗口 '{window_title}'")
+                    WindowManager.restore_window(hwnd)
+                    time.sleep(0.3)  # 等待窗口恢复
+                    logger.info("窗口已恢复，继续启动监视")
+                else:
+                    logger.info("用户取消了监视操作")
+                    return
             
             # 获取帧率
             fps = int(self.fps_spinbox.text())

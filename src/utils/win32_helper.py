@@ -72,6 +72,57 @@ class WindowManager:
     def get_window_title(hwnd: int) -> str:
         """获取窗口标题"""
         return win32gui.GetWindowText(hwnd)
+    
+    @staticmethod
+    def is_window_minimized(hwnd: int) -> bool:
+        """
+        检查窗口是否被最小化
+        
+        Args:
+            hwnd: 窗口句柄
+            
+        Returns:
+            bool: 如果窗口被最小化返回 True
+        """
+        return win32gui.IsIconic(hwnd)
+    
+    @staticmethod
+    def restore_window(hwnd: int) -> bool:
+        """
+        恢复最小化的窗口
+        
+        Args:
+            hwnd: 窗口句柄
+            
+        Returns:
+            bool: 操作是否成功
+        """
+        try:
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            logger.info(f"窗口已恢复: HWND={hwnd}")
+            return True
+        except Exception as e:
+            logger.error(f"恢复窗口失败: {e}")
+            return False
+    
+    @staticmethod
+    def minimize_window(hwnd: int) -> bool:
+        """
+        最小化窗口
+        
+        Args:
+            hwnd: 窗口句柄
+            
+        Returns:
+            bool: 操作是否成功
+        """
+        try:
+            win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+            logger.info(f"窗口已最小化: HWND={hwnd}")
+            return True
+        except Exception as e:
+            logger.error(f"最小化窗口失败: {e}")
+            return False
 
 
 class CaptureMethod:
